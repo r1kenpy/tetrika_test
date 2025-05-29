@@ -11,7 +11,6 @@ from solution import (
     get_soup,
     parse_pages_beasts,
 )
-from yarl import URL
 
 
 class TestRequest(AioHTTPTestCase):
@@ -29,7 +28,8 @@ class TestRequest(AioHTTPTestCase):
         <div id="mw-pages">
             <div style="font-size:85%">Инструменты:
                 <ul>
-                    <li><a href="Искать по категории" title="Животные по алфавиту">Искать по категории</a></li>
+                    <li><a href="Искать по категории" title="Животные по алфавиту">
+                    Искать по категории</a></li>
                 </ul>
             </div>
             <a href="/next">Следующая страница</a>
@@ -51,7 +51,8 @@ class TestRequest(AioHTTPTestCase):
         <div id="mw-pages">
             <div style="font-size:85%">Инструменты:
                 <ul>
-                    <li><a href="Искать по категории" title="Животные по алфавиту">Искать по категории</a></li>
+                    <li>
+                    <a href="Искать по категории" title="Животные по алфавиту">Искать по категории</a></li>
                 </ul>
             </div>
             <a href="/next">Следующая страница</a>
@@ -82,26 +83,43 @@ class TestRequest(AioHTTPTestCase):
         """
             return web.Response(text=html)
 
+        async def not_table_with_beasts(request):
+            html = """
+        <div id="mw-pages">
+            <div style="font-size:85%">Инструменты:
+                <ul>
+                    <li><a href="Искать по категории" title="Животные по алфавиту">Искать по категории</a></li>
+                </ul>
+            </div>
+            <a href="/next">Следующая страница</a>
+            <div class="mw-category mw-category-columns">
+                <span>Пусто</span>
+            </div>
+        </div>
+        """
+            return web.Response(text=html)
+
         app = web.Application()
         app.router.add_get("/timeout", timeout_handler)
         app.router.add_get("/first", first_page_handler)
         app.router.add_get("/second", second_page_handler)
+        app.router.add_get("/not-table", not_table_with_beasts)
         app.router.add_get("/", succes_handler)
         return app
 
     @property
     def get_base_url(self):
-        return URL(f"http://{self.server.host}:{self.server.port}")
+        return f"http://{self.server.host}:{self.server.port}"
 
     async def test_timeout(self):
         with self.assertRaises(TimeoutError):
             async with ClientSession() as session:
                 await get_response(
                     session=session,
-                    url=self.get_base_url / "timeout",
+                    url=parse.urljoin(self.get_base_url, "timeout"),
                 )
 
-    async def test_succes(self):
+    async def test_succes_request(self):
         async with ClientSession() as session:
             r = await get_response(
                 session=session,
@@ -112,12 +130,16 @@ class TestRequest(AioHTTPTestCase):
 
     async def test_parse_first_page(self):
         expected = {"А": 2}
-        data = await parse_pages_beasts(self.get_base_url / "first")
+        data = await parse_pages_beasts(
+            parse.urljoin(self.get_base_url, "first")
+        )
         self.assertEqual(data, expected)
 
     async def test_parse_second_page(self):
         expected = {"А": 2, "Б": 2, "В": 2}
-        data = await parse_pages_beasts(self.get_base_url / "second")
+        data = await parse_pages_beasts(
+            parse.urljoin(self.get_base_url, "second")
+        )
         self.assertEqual(data, expected)
 
     async def test_get_next_page_not_found(self):
@@ -194,3 +216,9 @@ class TestRequest(AioHTTPTestCase):
         table = soup.select_one("#mw-pages")
         next_page = await get_next_page(table)
         self.assertEqual(next_page, parse.urljoin(BASE_URL, "/next"))
+
+    async def test_not_table_with_beats(self):
+        beasts = await parse_pages_beasts(
+            parse.urljoin(self.get_base_url, "not-table")
+        )
+        self.assertEqual(beasts, {})
